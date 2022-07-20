@@ -1,0 +1,1 @@
+from flash_attention_jax.flash_attention_jax import flash_attention

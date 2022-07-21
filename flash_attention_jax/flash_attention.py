@@ -1,23 +1,56 @@
+import math
 import jax
+from functools import partial
 from jax import nn
 from jax import custom_vjp
-from jax import numpy as jnp, lax
+from jax import numpy as jnp, lax, jit, grad
 
-@custom_vjp
-def flash_attention(q, k, v):
+def _query_chunk_flash_attention(q, k, v):
+    q_len, k_len, dim, v_dim = q.shape[-2], *k.shape, v.shape[-1]
+
     sim = q @ k.transpose()
-    sim = sim / jnp.sqrt(q.shape[-1])
+    sim = sim / jnp.sqrt(dim)
     attn = nn.softmax(sim, axis = -1)
     out = attn @ v
+    return out
+
+@custom_vjp
+def flash_attention(q, k, v, q_chunk_size = 1024):
+    q_len, dim, v_dim = *q.shape, v.shape[-1]
+
+    def chunk_scanner(chunk_idx, _):
+        q_chunk = lax.dynamic_slice(q, (chunk_idx, 0), slice_sizes = (min(q_chunk_size, q_len), dim))
+        return (chunk_idx + q_chunk_size, _query_chunk_flash_attention(q_chunk, k, v))
+
+    _, res = lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / q_chunk_size))
+    out = res.reshape(q_len, v_dim)
     return out, q, k, v
 
-def flash_attention_forward(q, k, v):
-    out, q, k, v = flash_attention(q, k, v)
+def flash_attention_forward(q, k, v, q_chunk_size = 1024):
+    out, q, k, v = flash_attention(q, k, v, q_chunk_size = q_chunk_size)
     return out, (q, k, v)
 
 def flash_attention_backward(res, g):
     (q, k, v) = res
-    return q, k, v
+
+    dim = q.shape[-1]
+    scale = 1 / jnp.sqrt(dim)
+
+    sim = q @ k.transpose()
+    sim = sim * scale
+    attn = nn.softmax(sim, axis = -1)
+
+    dv = attn.transpose() @ g
+    dp = g @ v.transpose()
+
+    dxhat = dp * attn
+    ds = dxhat - attn * jnp.sum(dxhat, axis = 1, keepdims = True)
+    ds = ds * scale
+
+    dq = ds @ k
+    dk = ds.transpose() @ q
+
+    return dq, dk, dv, None
 
 flash_attention.defvjp(flash_attention_forward, flash_attention_backward)
 
@@ -27,22 +60,52 @@ def l2norm(t, eps = 1e-6):
     norm = jnp.linalg.norm(t)
     return t / (norm + eps)
 
-@custom_vjp
-def flash_cosine_sim_attention(q, k, v, scale = 16):
-    q, k = map(l2norm, (q, k))
+def _query_chunk_flash_cosine_sim_attention(q, k, v, scale = 16):
+    q_len, k_len, dim, v_dim = q.shape[-2], *k.shape, v.shape[-1]
 
     sim = q @ k.transpose()
     sim = sim * scale
     attn = nn.softmax(sim, axis = -1)
     out = attn @ v
+    return out
+
+def flash_cosine_sim_attention(q, k, v, scale = 16, q_chunk_size = 1024):
+    q, k = map(l2norm, (q, k))
+    return flash_cosine_sim_attention_post_l2norm(q, k, v, scale = scale, q_chunk_size = q_chunk_size)
+
+@custom_vjp
+def flash_cosine_sim_attention_post_l2norm(q, k, v, scale = 16, q_chunk_size = 1024):
+    q_len, dim, v_dim = *q.shape, v.shape[-1]
+
+    def chunk_scanner(chunk_idx, _):
+        q_chunk = lax.dynamic_slice(q, (chunk_idx, 0), slice_sizes = (min(q_chunk_size, q_len), dim))
+        return (chunk_idx + q_chunk_size, _query_chunk_flash_cosine_sim_attention(q_chunk, k, v, scale = scale))
+
+    _, res = lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / q_chunk_size))
+    out = res.reshape(q_len, v_dim)
     return out, q, k, v
 
-def flash_cosine_sim_attention_forward(q, k, v, scale = 16):
-    out, q, k, v = flash_cosine_sim_attention(q, k, v, scale = scale)
-    return out, (q, k, v)
+def flash_cosine_sim_attention_forward(q, k, v, scale = 16, q_chunk_size = 1024):
+    out, q, k, v = flash_cosine_sim_attention(q, k, v, scale = scale, q_chunk_size = q_chunk_size)
+    return out, (q, k, v, scale)
 
 def flash_cosine_sim_attention_backward(res, g):
-    q, k, v = res
-    return q, k, v, None
+    (q, k, v, scale) = res
 
-flash_cosine_sim_attention.defvjp(flash_cosine_sim_attention_forward, flash_cosine_sim_attention_backward)
+    sim = q @ k.transpose()
+    sim = sim * scale
+    attn = nn.softmax(sim, axis = -1)
+
+    dv = attn.transpose() @ g
+    dp = g @ v.transpose()
+
+    dxhat = dp * attn
+    ds = dxhat - attn * jnp.sum(dxhat, axis = 1, keepdims = True)
+    ds = ds * scale
+
+    dq = ds @ k
+    dk = ds.transpose() @ q
+
+    return dq, dk, dv, None, None
+
+flash_cosine_sim_attention_post_l2norm.defvjp(flash_cosine_sim_attention_forward, flash_cosine_sim_attention_backward)

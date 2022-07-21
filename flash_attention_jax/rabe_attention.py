@@ -1,4 +1,5 @@
-import functools, math
+import math
+from functools import partial
 
 import jax
 from jax import lax, numpy as jnp, jit
@@ -18,7 +19,7 @@ def _query_chunk_attention(q, k, v, k_chunk_size = 4096):
     k_chunk_size = min(k_chunk_size, k_len)
     q = q / jnp.sqrt(dim)
 
-    @functools.partial(jax.checkpoint, prevent_cse = False)
+    @partial(jax.checkpoint, prevent_cse = False)
     def summarize_chunk(q, k, v):
         attn_weights = einsum('qd, kd -> qk', q, k)
         max_score = jnp.max(attn_weights, axis = -1, keepdims = True)
@@ -64,7 +65,7 @@ def _query_chunk_cosine_sim_attention(q, k, v, k_chunk_size = 4096, scale = 16):
 
     k_chunk_size = min(k_chunk_size, k_len)
 
-    @functools.partial(jax.checkpoint, prevent_cse = False)
+    @partial(jax.checkpoint, prevent_cse = False)
     def summarize_chunk(q, k, v):
         attn_weights = einsum('qd, kd -> qk', q, k) * scale
         exp_weights = jnp.exp(attn_weights)

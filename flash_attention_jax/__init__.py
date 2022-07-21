@@ -1,3 +1,4 @@
-from flash_attention_jax.flash_attention_jax import flash_attention
+from flash_attention_jax.flash_attention import flash_attention
 
-from flash_attention_jax.rabe_attention import rabe_attention
+from flash_attention_jax.rabe_attention import rabe_attention, rabe_cosine_sim_attention
+from flash_attention_jax.attention import attention, cosine_sim_attention

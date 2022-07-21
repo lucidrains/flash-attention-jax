@@ -18,7 +18,6 @@ setup(
     'jax'
   ],
   install_requires=[
-    'einops>=0.4',
     'jax>=0.2.20'
   ],
   classifiers=[

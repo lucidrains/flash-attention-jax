@@ -15,3 +15,13 @@ Implementation of <a href="https://arxiv.org/abs/2205.14135">Flash Attention</a>
     volume  = {abs/2205.14135}
 }
 ```
+
+```bibtex
+@article{Rabe2021SelfattentionDN,
+    title   = {Self-attention Does Not Need O(n2) Memory},
+    author  = {Markus N. Rabe and Charles Staats},
+    journal = {ArXiv},
+    year    = {2021},
+    volume  = {abs/2112.05682}
+}
+```

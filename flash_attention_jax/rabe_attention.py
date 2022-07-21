@@ -69,7 +69,7 @@ def _query_chunk_cosine_sim_attention(q, k, v, k_chunk_size = 4096, scale = 16):
     def summarize_chunk(q, k, v):
         attn_weights = einsum('qd, kd -> qk', q, k) * scale
         exp_weights = jnp.exp(attn_weights)
-        exp_values = einsum('vf, qv -> qf', v, attn_weights)
+        exp_values = einsum('vf, qv -> qf', v, exp_weights)
         return (exp_values, exp_weights.sum(axis = -1))
 
     def chunk_scanner(chunk_idx):

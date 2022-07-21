@@ -52,7 +52,6 @@ def rabe_attention(q, k, v, q_chunk_size = 1024, k_chunk_size = 4096):
     _, res = jax.lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / q_chunk_size))
     return res.reshape(q_len, v_dim)
 
-
 # cosine sim attention
 
 def l2norm(t, eps = 1e-6):
@@ -82,10 +81,10 @@ def _query_chunk_cosine_sim_attention(q, k, v, k_chunk_size = 4096, scale = 16):
     all_weights = jnp.expand_dims(chunk_weights, -1).sum(axis = 0)
     return all_values / all_weights
 
-def rabe_cosine_sim_attention(q, k, v, q_chunk_size = 1024, k_chunk_size = 4096, scale = 16, eps = 1e-5):
+def rabe_cosine_sim_attention(q, k, v, q_chunk_size = 1024, k_chunk_size = 4096, scale = 16, eps = 1e-6):
     q_len, dim, v_dim = *q.shape, v.shape[-1]
 
-    q, k = map(l2norm, (q, k))
+    q, k = map(partial(l2norm, eps = eps), (q, k))
 
     def chunk_scanner(chunk_idx, _):
         q_chunk = lax.dynamic_slice(q, (chunk_idx, 0), slice_sizes = (min(q_chunk_size, q_len), dim))

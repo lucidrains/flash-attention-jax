@@ -1,7 +1,7 @@
 import functools, math
 
 import jax
-from jax import lax, numpy as jnp
+from jax import lax, numpy as jnp, jit
 
 # constants
 
@@ -42,6 +42,7 @@ def _query_chunk_attention(q, k, v, k_chunk_size = 4096):
     all_weights = jnp.expand_dims(chunk_weights, -1).sum(axis = 0)
     return all_values / all_weights
 
+@jit
 def rabe_attention(q, k, v, q_chunk_size = 1024, k_chunk_size = 4096):
     q_len, dim, v_dim = *q.shape, v.shape[-1]
 
@@ -81,6 +82,7 @@ def _query_chunk_cosine_sim_attention(q, k, v, k_chunk_size = 4096, scale = 16):
     all_weights = jnp.expand_dims(chunk_weights, -1).sum(axis = 0)
     return all_values / all_weights
 
+@jit
 def rabe_cosine_sim_attention(q, k, v, q_chunk_size = 1024, k_chunk_size = 4096, scale = 16, eps = 1e-6):
     q_len, dim, v_dim = *q.shape, v.shape[-1]
 

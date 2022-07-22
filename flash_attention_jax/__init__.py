@@ -1,3 +1,5 @@
 from flash_attention_jax.flash_attention import flash_attention
 from flash_attention_jax.rabe_attention import rabe_attention
 from flash_attention_jax.attention import attention
+
+plain_attention = attention

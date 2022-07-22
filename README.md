@@ -39,7 +39,7 @@ diff, (dq_diff, dk_diff, dv_diff) = value_and_grad_difference(
 )
 
 print('shows differences between normal and flash attention for output, dq, dk, dv')
-print(f'o: {diff}')     # < 1e-4
+print(f'o: {diff}')       # < 1e-4
 print(f'dq: {dq_diff}')   # < 1e-6
 print(f'dk: {dk_diff}')   # < 1e-6
 print(f'dv: {dv_diff}')   # < 1e-6

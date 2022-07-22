@@ -15,6 +15,7 @@ K_CHUNK_SIZE = 1024
 def _query_chunk_flash_attention(q, k, v):
     q_len, k_len, dim, v_dim = q.shape[-2], *k.shape, v.shape[-1]
     scale = 1 / jnp.sqrt(dim)
+    q_scaled  = q * scale
 
     def chunk_scanner(carries, _):
         chunk_idx, out, row_sum, row_max = carries
@@ -23,7 +24,7 @@ def _query_chunk_flash_attention(q, k, v):
         k_chunk = lax.dynamic_slice(k, (chunk_idx, 0), slice_sizes=(k_chunk_sizes, dim))
         v_chunk = lax.dynamic_slice(v, (chunk_idx, 0), slice_sizes=(k_chunk_sizes, v_dim))
 
-        attn_weights = (q @ k_chunk.transpose()) * scale
+        attn_weights = q_scaled @ k_chunk.transpose()
 
         block_row_max = jnp.max(attn_weights, axis = -1, keepdims = True)
         exp_weights = jnp.exp(attn_weights - block_row_max)
@@ -80,6 +81,7 @@ def _query_chunk_flash_attention_backward(q, k, v, o, do, l, m):
     q_len, dim, k_len, v_dim = *q.shape, *v.shape
 
     scale = 1 / jnp.sqrt(dim)
+    q_scaled = q * scale
 
     def chunk_scanner(carries, _):
         chunk_idx, dq = carries
@@ -88,8 +90,8 @@ def _query_chunk_flash_attention_backward(q, k, v, o, do, l, m):
         k_chunk = lax.dynamic_slice(k, (chunk_idx, 0), slice_sizes=(k_chunk_sizes, dim))
         v_chunk = lax.dynamic_slice(v, (chunk_idx, 0), slice_sizes=(k_chunk_sizes, v_dim))
 
-        attn_weights = q @ k_chunk.transpose()
-        attn_weights = (attn_weights * scale)
+        attn_weights = q_scaled @ k_chunk.transpose()
+        attn_weights = attn_weights
         exp_attn_weights = jnp.exp(attn_weights - m)
         p = exp_attn_weights / l
 
@@ -97,8 +99,7 @@ def _query_chunk_flash_attention_backward(q, k, v, o, do, l, m):
         dp = do @ v_chunk.transpose()
 
         D = jnp.sum(do * o, axis = -1, keepdims = True)
-        ds = p * (dp - D)
-        ds = ds * scale
+        ds = p * scale * (dp - D)
 
         dq_chunk = ds @ k_chunk
         dk_chunk = ds.transpose() @ q

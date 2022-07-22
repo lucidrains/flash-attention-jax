@@ -26,6 +26,25 @@ out, _ = flash_attention(q, k, v)
 out.shape  # (131072, 512)
 ```
 
+Quick sanity check
+
+
+```python
+from flash_attention_jax import attention, flash_attention, value_and_grad_difference
+
+diff, (dq_diff, dk_diff, dv_diff) = value_and_grad_difference(
+    attention,
+    flash_attention,
+    seed = 42
+)
+
+print('shows differences between normal and flash attention for output, dq, dk, dv')
+print(f'o: {diff}')     # < 1e-4
+print(f'dq: {dq_diff}')   # < 1e-6
+print(f'dk: {dk_diff}')   # < 1e-6
+print(f'dv: {dv_diff}')   # < 1e-6
+```
+
 ## Using in Pytorch
 
 You'll have to have both Jax and Pytorch installed

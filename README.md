@@ -93,6 +93,11 @@ out = torch_flash_attention(q, k, v, key_mask)
 out.shape # (131072, 512)
 ```
 
+## Todo
+
+- [ ] figure out issue with jit and static argnums
+- [ ] comment with references to paper algorithms and explanations
+
 ## Citations
 
 ```bibtex

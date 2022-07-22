@@ -47,6 +47,22 @@ print(f'dk: {dk_diff}')   # < 1e-6
 print(f'dv: {dv_diff}')   # < 1e-6
 ```
 
+Autoregressive Flash Attention - GPT-like decoder attention
+
+```python
+from jax import random
+from flash_attention_jax import causal_flash_attention
+
+rng_key = random.PRNGKey(42)
+q = random.normal(rng_key, (131072, 512))
+k = random.normal(rng_key, (131072, 512))
+v = random.normal(rng_key, (131072, 512))
+
+out, _ = causal_flash_attention(q, k, v, key_mask)
+
+out.shape  # (131072, 512)
+```
+
 ## Using in Pytorch
 
 You'll have to have both Jax and Pytorch installed

@@ -23,8 +23,9 @@ def value_and_grad_difference(
     fn1,
     fn2,
     seed = 42,
-    q_seq_len = 1024,
-    k_seq_len = 8192,
+    q_seq_len = 4096,
+    k_seq_len = 4096,
+    add_key_mask = True,
     dim = 512
 ):
     key_gen = PRNGKeyGenerator(seed)
@@ -37,7 +38,11 @@ def value_and_grad_difference(
 
     fn1_value_and_grad, fn2_value_and_grad = map(partial(value_and_grad_wrapper, argnums = (0, 1, 2)), (fn1, fn2))
 
-    o1, grads1 = fn1_value_and_grad(q, k, v, key_mask)
-    o2, grads2 = fn2_value_and_grad(q, k, v, key_mask)
+    args = (q, k, v)
+    if add_key_mask:
+        args = (*args, key_mask)
+
+    o1, grads1 = fn1_value_and_grad(*args)
+    o2, grads2 = fn2_value_and_grad(*args)
 
     return diff(o1, o2), [diff(*args) for args in zip(grads1, grads2)]

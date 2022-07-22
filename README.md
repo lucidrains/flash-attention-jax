@@ -97,6 +97,7 @@ out.shape # (131072, 512)
 
 - [ ] figure out issue with jit and static argnums
 - [ ] comment with references to paper algorithms and explanations
+- [ ] make sure it can work one-headed key / values, as in PaLM
 
 ## Citations
 

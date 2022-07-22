@@ -30,10 +30,10 @@ Quick sanity check
 
 
 ```python
-from flash_attention_jax import attention, flash_attention, value_and_grad_difference
+from flash_attention_jax import plain_attention, flash_attention, value_and_grad_difference
 
 diff, (dq_diff, dk_diff, dv_diff) = value_and_grad_difference(
-    attention,
+    plain_attention,
     flash_attention,
     seed = 42
 )

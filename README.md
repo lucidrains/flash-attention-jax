@@ -17,13 +17,13 @@ from jax import random
 from flash_attention_jax import flash_attention
 
 rng_key = random.PRNGKey(42)
+
 q = random.normal(rng_key, (131072, 512))
 k = random.normal(rng_key, (131072, 512))
 v = random.normal(rng_key, (131072, 512))
+mask = random.randint(rng_key, (131072,), 0, 2)
 
-key_mask = random.randint(rng_key, (131072,), 0, 2)
-
-out, _ = flash_attention(q, k, v, key_mask)
+out, _ = flash_attention(q, k, v, mask)
 
 out.shape  # (131072, 512)
 ```
@@ -54,11 +54,12 @@ from jax import random
 from flash_attention_jax import causal_flash_attention
 
 rng_key = random.PRNGKey(42)
+
 q = random.normal(rng_key, (131072, 512))
 k = random.normal(rng_key, (131072, 512))
 v = random.normal(rng_key, (131072, 512))
 
-out, _ = causal_flash_attention(q, k, v, key_mask)
+out, _ = causal_flash_attention(q, k, v)
 
 out.shape  # (131072, 512)
 ```
@@ -83,12 +84,11 @@ from flash_attention_jax import flash_attention
 q = torch.randn(131072, 512).cuda()
 k = torch.randn(131072, 512).cuda()
 v = torch.randn(131072, 512).cuda()
-
-key_mask = torch.ones((131072,)).cuda()  # dlpack does not support boolean types, use 1s and 0s
+mask = torch.ones((131072,)).cuda()  # dlpack does not support boolean types, use 1s and 0s
 
 torch_flash_attention = jax2torch(flash_attention)
 
-out = torch_flash_attention(q, k, v, key_mask)
+out = torch_flash_attention(q, k, v, mask)
 
 out.shape # (131072, 512)
 ```

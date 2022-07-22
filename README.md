@@ -1,6 +1,6 @@
 <img src="./flash-attention.png" width="450px"></img>
 
-## Flash Attention - Jax (wip)
+## Flash Attention - Jax
 
 Implementation of <a href="https://arxiv.org/abs/2205.14135">Flash Attention</a> in Jax. It will likely not be as performant as with the <a href="https://github.com/HazyResearch/flash-attention">official CUDA version</a>, given lack of ability for fine memory management. But just for educational purposes as well as to see how clever XLA compiler is (or is not).
 

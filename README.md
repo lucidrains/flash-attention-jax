@@ -16,12 +16,14 @@ $ pip install flash-attention-jax
 from jax import random
 from flash_attention_jax import flash_attention
 
-key = random.PRNGKey(42)
-q = random.normal(key, (131072, 512))
-k = random.normal(key, (131072, 512))
-v = random.normal(key, (131072, 512))
+rng_key = random.PRNGKey(42)
+q = random.normal(rng_key, (131072, 512))
+k = random.normal(rng_key, (131072, 512))
+v = random.normal(rng_key, (131072, 512))
 
-out, _ = flash_attention(q, k, v)
+key_mask = random.randint(rng_key, (131072,), 0, 2)
+
+out, _ = flash_attention(q, k, v, key_mask)
 
 out.shape  # (131072, 512)
 ```
@@ -66,9 +68,11 @@ q = torch.randn(131072, 512).cuda()
 k = torch.randn(131072, 512).cuda()
 v = torch.randn(131072, 512).cuda()
 
+key_mask = torch.ones((131072,)).cuda()  # dlpack does not support boolean types
+
 torch_flash_attention = jax2torch(flash_attention)
 
-out = torch_flash_attention(q, k, v)
+out = torch_flash_attention(q, k, v, key_mask)
 
 out.shape # (131072, 512)
 ```

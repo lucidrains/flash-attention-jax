@@ -7,12 +7,15 @@ from jax import numpy as jnp, lax, jit, grad
 
 # constants
 
+EPSILON = 1e-10
+MASK_VALUE = -1e10
+
 Q_CHUNK_SIZE = 1024
 K_CHUNK_SIZE = 1024
 
 # flash attention
 
-def _query_chunk_flash_attention(q, k, v):
+def _query_chunk_flash_attention(q, k, v, key_mask):
     q_len, k_len, dim, v_dim = q.shape[-2], *k.shape, v.shape[-1]
     scale = 1 / jnp.sqrt(dim)
     q_scaled  = q * scale
@@ -23,12 +26,17 @@ def _query_chunk_flash_attention(q, k, v):
 
         k_chunk = lax.dynamic_slice(k, (chunk_idx, 0), slice_sizes=(k_chunk_sizes, dim))
         v_chunk = lax.dynamic_slice(v, (chunk_idx, 0), slice_sizes=(k_chunk_sizes, v_dim))
+        key_mask_chunk = lax.dynamic_slice(key_mask, (chunk_idx,), slice_sizes=(k_chunk_sizes,))
 
         attn_weights = q_scaled @ k_chunk.transpose()
+        attn_weights = jnp.where(key_mask_chunk, attn_weights, MASK_VALUE)
 
         block_row_max = jnp.max(attn_weights, axis = -1, keepdims = True)
+
         exp_weights = jnp.exp(attn_weights - block_row_max)
-        block_row_sum = jnp.sum(exp_weights, axis = -1, keepdims = True)
+
+        exp_weights = jnp.where(key_mask_chunk, exp_weights, 0.)
+        block_row_sum = jnp.sum(exp_weights, axis = -1, keepdims = True) + EPSILON
 
         exp_values = exp_weights @ v_chunk
 
@@ -57,12 +65,15 @@ def _query_chunk_flash_attention(q, k, v):
     return out, row_sum, row_max
 
 @custom_vjp
-def flash_attention(q, k, v):
+def flash_attention(q, k, v, key_mask):
     q_len, dim, v_dim = *q.shape, v.shape[-1]
 
     def chunk_scanner(chunk_idx, _):
-        q_chunk = lax.dynamic_slice(q, (chunk_idx, 0), slice_sizes = (min(Q_CHUNK_SIZE, q_len), dim))
-        return (chunk_idx + Q_CHUNK_SIZE, _query_chunk_flash_attention(q_chunk, k, v))
+        chunk_sizes = min(Q_CHUNK_SIZE, q_len)
+
+        q_chunk = lax.dynamic_slice(q, (chunk_idx, 0), slice_sizes = (chunk_sizes, dim))
+
+        return (chunk_idx + chunk_sizes, _query_chunk_flash_attention(q_chunk, k, v, key_mask))
 
     _, (out, row_sum, row_max) = lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
 
@@ -73,11 +84,11 @@ def flash_attention(q, k, v):
     return out, (row_sum, row_max)
 
 @jit
-def flash_attention_forward(q, k, v):
-    out, (row_sum, row_max) = flash_attention(q, k, v)
-    return out, (q, k, v, out, row_sum, row_max)
+def flash_attention_forward(q, k, v, key_mask):
+    out, (row_sum, row_max) = flash_attention(q, k, v, key_mask)
+    return out, (q, k, v, key_mask, out, row_sum, row_max)
 
-def _query_chunk_flash_attention_backward(q, k, v, o, do, l, m):
+def _query_chunk_flash_attention_backward(q, k, v, key_mask,o, do, l, m):
     q_len, dim, k_len, v_dim = *q.shape, *v.shape
 
     scale = 1 / jnp.sqrt(dim)
@@ -89,10 +100,14 @@ def _query_chunk_flash_attention_backward(q, k, v, o, do, l, m):
 
         k_chunk = lax.dynamic_slice(k, (chunk_idx, 0), slice_sizes=(k_chunk_sizes, dim))
         v_chunk = lax.dynamic_slice(v, (chunk_idx, 0), slice_sizes=(k_chunk_sizes, v_dim))
+        key_mask_chunk = lax.dynamic_slice(key_mask, (chunk_idx,), slice_sizes=(k_chunk_sizes,))
 
         attn_weights = q_scaled @ k_chunk.transpose()
         attn_weights = attn_weights
         exp_attn_weights = jnp.exp(attn_weights - m)
+
+        exp_attn_weights = jnp.where(key_mask_chunk, exp_attn_weights, 0.)
+
         p = exp_attn_weights / l
 
         dv_chunk = p.transpose() @ do
@@ -118,7 +133,7 @@ def _query_chunk_flash_attention_backward(q, k, v, o, do, l, m):
 
 @jit
 def flash_attention_backward(res, do):
-    q, k, v, o, l, m = res
+    q, k, v, key_mask, o, l, m = res
 
     q_len, dim = q.shape
 
@@ -139,13 +154,13 @@ def flash_attention_backward(res, do):
         o_chunk = lax.dynamic_slice(o, (chunk_idx, 0), slice_sizes = (chunk_sizes, o.shape[-1]))
         do_chunk = lax.dynamic_slice(do, (chunk_idx, 0), slice_sizes = (chunk_sizes, do.shape[-1]))
 
-        dq_chunk, dk_chunk, dv_chunk = _query_chunk_flash_attention_backward(q_chunk, k, v, o_chunk, do_chunk, l_chunk, m_chunk)
+        dq_chunk, dk_chunk, dv_chunk = _query_chunk_flash_attention_backward(q_chunk, k, v, key_mask, o_chunk, do_chunk, l_chunk, m_chunk)
         return (chunk_idx + chunk_sizes, dk + dk_chunk, dv + dv_chunk), dq_chunk
 
     (_, dk, dv), dq = lax.scan(chunk_scanner, init = (0, dk, dv), xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
 
     dq = dq.reshape(q_len, dim)
 
-    return dq, dk, dv
+    return dq, dk, dv, None
 
 flash_attention.defvjp(flash_attention_forward, flash_attention_backward)

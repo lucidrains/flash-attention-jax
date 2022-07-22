@@ -13,6 +13,12 @@ def value_and_grad_wrapper(fn, **kwargs):
 def diff(t1, t2):
     return jnp.max(jnp.abs(t1 - t2))
 
+def PRNGKeyGenerator(seed = 42):
+    key = random.PRNGKey(seed)
+    while True:
+        sub_key, key = random.split(key)
+        yield sub_key
+
 def value_and_grad_difference(
     fn1,
     fn2,
@@ -21,18 +27,17 @@ def value_and_grad_difference(
     k_seq_len = 8192,
     dim = 512
 ):
-    key = random.PRNGKey(seed)
-    key1, key = random.split(key)
-    key2, key = random.split(key)
-    key3, key = random.split(key)
+    key_gen = PRNGKeyGenerator(seed)
 
-    q = random.normal(key1, (q_seq_len, dim))
-    k = random.normal(key2, (k_seq_len, dim))
-    v = random.normal(key3, (k_seq_len, dim))
+    q = random.normal(next(key_gen), (q_seq_len, dim))
+    k = random.normal(next(key_gen), (k_seq_len, dim))
+    v = random.normal(next(key_gen), (k_seq_len, dim))
+
+    key_mask = random.randint(next(key_gen), (k_seq_len,), 0, 2) == 1
 
     fn1_value_and_grad, fn2_value_and_grad = map(partial(value_and_grad_wrapper, argnums = (0, 1, 2)), (fn1, fn2))
 
-    o1, grads1 = fn1_value_and_grad(q, k, v)
-    o2, grads2 = fn2_value_and_grad(q, k, v)
+    o1, grads1 = fn1_value_and_grad(q, k, v, key_mask)
+    o2, grads2 = fn2_value_and_grad(q, k, v, key_mask)
 
     return diff(o1, o2), [diff(*args) for args in zip(grads1, grads2)]

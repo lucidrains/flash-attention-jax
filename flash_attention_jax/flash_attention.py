@@ -45,8 +45,8 @@ def _query_chunk_flash_attention(q, k, v):
     row_sum = jnp.zeros((q_len, 1))
     row_max = jnp.ones((q_len, 1)) * -1e6
 
-    (_, out, _, _), _ = lax.scan(chunk_scanner, init = (0, out, row_sum, row_max), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
-    return out.reshape(q_len, v_dim)
+    (_, out, row_sum, row_max), _ = lax.scan(chunk_scanner, init = (0, out, row_sum, row_max), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
+    return out.reshape(q_len, v_dim), row_sum.reshape(q_len), row_max.reshape(q_len)
 
 @custom_vjp
 def flash_attention(q, k, v):
@@ -56,31 +56,35 @@ def flash_attention(q, k, v):
         q_chunk = lax.dynamic_slice(q, (chunk_idx, 0), slice_sizes = (min(Q_CHUNK_SIZE, q_len), dim))
         return (chunk_idx + Q_CHUNK_SIZE, _query_chunk_flash_attention(q_chunk, k, v))
 
-    _, res = lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
-    out = res.reshape(q_len, v_dim)
-    return out, q, k, v
+    _, (out, row_sum, row_max) = lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
+
+    out = out.reshape(q_len, v_dim)
+    row_sum = row_sum.reshape(q_len)
+    row_max = row_max.reshape(q_len)
+
+    return out, q, k, v, row_sum, row_max
 
 @jit
 def flash_attention_forward(q, k, v):
-    out, q, k, v = flash_attention(q, k, v)
-    return out, (q, k, v)
+    out, q, k, v, row_sum, row_max = flash_attention(q, k, v)
+    return out, (q, k, v, out, row_sum, row_max)
 
 @jit
-def flash_attention_backward(res, g):
-    q, k, v = res
+def flash_attention_backward(res, do):
+    q, k, v, o, l, m = res
 
     dim = q.shape[-1]
     scale = 1 / jnp.sqrt(dim)
 
     sim = q @ k.transpose()
     sim = sim * scale
-    attn = nn.softmax(sim, axis = -1)
+    p = nn.softmax(sim, axis = -1)
 
-    dv = attn.transpose() @ g
-    dp = g @ v.transpose()
+    dv = p.transpose() @ do
+    dp = do @ v.transpose()
 
-    dxhat = dp * attn
-    ds = dxhat - attn * jnp.sum(dxhat, axis = 1, keepdims = True)
+    D = jnp.sum(do * o, axis = -1, keepdims = True)
+    ds = p * (dp - D)
     ds = ds * scale
 
     dq = ds @ k
@@ -125,7 +129,7 @@ def _query_chunk_flash_cosine_sim_attention(q, k, v):
     (_, out, row_sum), _ = lax.scan(chunk_scanner, init = (0, out, row_sum), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
 
     out = out * (k_len / row_sum)
-    return out.reshape(q_len, v_dim)
+    return out.reshape(q_len, v_dim), row_sum
 
 def flash_cosine_sim_attention(q, k, v):
     q, k = map(l2norm, (q, k))
@@ -139,28 +143,30 @@ def flash_cosine_sim_attention_post_l2norm(q, k, v):
         q_chunk = lax.dynamic_slice(q, (chunk_idx, 0), slice_sizes = (min(Q_CHUNK_SIZE, q_len), dim))
         return (chunk_idx + Q_CHUNK_SIZE, _query_chunk_flash_cosine_sim_attention(q_chunk, k, v))
 
-    _, res = lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
-    out = res.reshape(q_len, v_dim)
-    return out, q, k, v
+    _, (out, row_sum) = lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
+
+    out = out.reshape(q_len, v_dim)
+    row_sum = row_sum.reshape(q_len)
+
+    return out, q, k, v, row_sum
 
 @jit
 def flash_cosine_sim_attention_forward(q, k, v):
-    out, q, k, v = flash_cosine_sim_attention(q, k, v)
-    return out, (q, k, v)
+    out, q, k, v, row_sum = flash_cosine_sim_attention(q, k, v)
+    return out, (q, k, v, out, row_sum)
 
 @jit
-def flash_cosine_sim_attention_backward(res, g):
-    q, k, v = res
+def flash_cosine_sim_attention_backward(res, do):
+    q, k, v, o, l = res
 
     sim = q @ k.transpose()
     sim = sim * COSINE_SIM_SCALE
-    attn = nn.softmax(sim, axis = -1)
+    p = nn.softmax(sim, axis = -1)
 
-    dv = attn.transpose() @ g
-    dp = g @ v.transpose()
+    dv = p.transpose() @ do
+    dp = do @ v.transpose()
 
-    dxhat = dp * attn
-    ds = dxhat - attn * jnp.sum(dxhat, axis = 1, keepdims = True)
+    ds = p * (dp - jnp.sum(do * o, axis = -1, keepdims = True))
     ds = ds * COSINE_SIM_SCALE
 
     dq = ds @ k

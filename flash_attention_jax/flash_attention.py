@@ -9,9 +9,6 @@ from jax import numpy as jnp, lax, jit, grad
 
 Q_CHUNK_SIZE = 1024
 K_CHUNK_SIZE = 2048
-HIGHEST_PRECISION = jax.lax.Precision.HIGHEST
-
-einsum = partial(jnp.einsum, precision = HIGHEST_PRECISION)
 
 # flash attention
 
@@ -24,13 +21,13 @@ def _query_chunk_flash_attention(q, k, v):
         k_chunk = lax.dynamic_slice(k, (chunk_idx, 0), slice_sizes=(K_CHUNK_SIZE, dim))
         v_chunk = lax.dynamic_slice(v, (chunk_idx, 0), slice_sizes=(K_CHUNK_SIZE, v_dim))
 
-        attn_weights = einsum('qd, kd -> qk', q, k) * scale
+        attn_weights = (q @ k.transpose()) * scale
 
         block_row_max = jnp.max(attn_weights, axis = -1, keepdims = True)
         exp_weights = jnp.exp(attn_weights - block_row_max)
         block_row_sum = jnp.sum(exp_weights, axis = -1, keepdims = True)
 
-        exp_values = einsum('vf, qv -> qf', v, exp_weights)
+        exp_values = exp_weights @ v
 
         new_row_max = jnp.maximum(block_row_max, row_max)
 
@@ -110,11 +107,11 @@ def _query_chunk_flash_cosine_sim_attention(q, k, v):
         k_chunk = lax.dynamic_slice(k, (chunk_idx, 0), slice_sizes=(K_CHUNK_SIZE, dim))
         v_chunk = lax.dynamic_slice(v, (chunk_idx, 0), slice_sizes=(K_CHUNK_SIZE, v_dim))
 
-        attn_weights = einsum('qd, kd -> qk', q, k) * COSINE_SIM_SCALE
+        attn_weights = (q @ k.transpose()) * COSINE_SIM_SCALE
         exp_weights = jnp.exp(attn_weights - COSINE_SIM_SCALE)
         block_row_sum = jnp.sum(exp_weights, axis = -1, keepdims = True)
 
-        exp_values = einsum('vf, qv -> qf', v, exp_weights)
+        exp_values = exp_weights @ v
 
         new_row_sum = row_sum + block_row_sum
 

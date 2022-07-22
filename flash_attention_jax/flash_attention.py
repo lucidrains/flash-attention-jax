@@ -3,7 +3,7 @@ import jax
 from functools import partial
 from jax import nn
 from jax import custom_vjp
-from jax import numpy as jnp, lax, jit, grad
+from jax import numpy as jnp, lax, jit
 
 # constants
 
@@ -15,7 +15,7 @@ K_CHUNK_SIZE = 1024
 
 # flash attention
 
-def _query_chunk_flash_attention(q, k, v, key_mask):
+def _query_chunk_flash_attention(chunk_idx, q, k, v, key_mask):
     q_len, k_len, dim, v_dim = q.shape[-2], *k.shape, v.shape[-1]
     scale = 1 / jnp.sqrt(dim)
     q_scaled  = q * scale
@@ -73,7 +73,7 @@ def flash_attention(q, k, v, key_mask):
 
         q_chunk = lax.dynamic_slice(q, (chunk_idx, 0), slice_sizes = (chunk_sizes, dim))
 
-        return (chunk_idx + chunk_sizes, _query_chunk_flash_attention(q_chunk, k, v, key_mask))
+        return (chunk_idx + chunk_sizes, _query_chunk_flash_attention(chunk_idx, q_chunk, k, v, key_mask))
 
     _, (out, row_sum, row_max) = lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
 

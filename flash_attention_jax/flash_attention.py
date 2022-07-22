@@ -48,7 +48,12 @@ def _query_chunk_flash_attention(q, k, v):
     row_max = jnp.ones((q_len, 1)) * -1e6
 
     (_, out, row_sum, row_max), _ = lax.scan(chunk_scanner, init = (0, out, row_sum, row_max), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
-    return out.reshape(q_len, v_dim), row_sum.reshape(q_len), row_max.reshape(q_len)
+
+    out = out.reshape(q_len, v_dim)
+    row_sum = row_sum.reshape(q_len)
+    row_max = row_max.reshape(q_len)
+
+    return out, row_sum, row_max
 
 @custom_vjp
 def flash_attention(q, k, v):
@@ -64,11 +69,11 @@ def flash_attention(q, k, v):
     row_sum = row_sum.reshape(q_len)
     row_max = row_max.reshape(q_len)
 
-    return out, q, k, v, row_sum, row_max
+    return out, (row_sum, row_max)
 
 @jit
 def flash_attention_forward(q, k, v):
-    out, q, k, v, row_sum, row_max = flash_attention(q, k, v)
+    out, (row_sum, row_max) = flash_attention(q, k, v)
     return out, (q, k, v, out, row_sum, row_max)
 
 def _query_chunk_flash_attention_backward(q, k, v, o, do, l, m):
@@ -139,6 +144,7 @@ def flash_attention_backward(res, do):
     (_, dk, dv), dq = lax.scan(chunk_scanner, init = (0, dk, dv), xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
 
     dq = dq.reshape(q_len, dim)
+
     return dq, dk, dv
 
 flash_attention.defvjp(flash_attention_forward, flash_attention_backward)

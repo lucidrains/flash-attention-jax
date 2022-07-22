@@ -68,7 +68,7 @@ q = torch.randn(131072, 512).cuda()
 k = torch.randn(131072, 512).cuda()
 v = torch.randn(131072, 512).cuda()
 
-key_mask = torch.ones((131072,)).cuda()  # dlpack does not support boolean types
+key_mask = torch.ones((131072,)).cuda()  # dlpack does not support boolean types, use 1s and 0s
 
 torch_flash_attention = jax2torch(flash_attention)
 

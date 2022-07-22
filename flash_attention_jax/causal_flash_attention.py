@@ -27,7 +27,7 @@ def _query_chunk_flash_attention(q_range_chunk, k_range, q, k, v):
         k_chunk = lax.dynamic_slice(k, (key_chunk_idx, 0), slice_sizes=(k_chunk_sizes, dim))
         v_chunk = lax.dynamic_slice(v, (key_chunk_idx, 0), slice_sizes=(k_chunk_sizes, v_dim))
 
-        k_range_chunk = lax.dynamic_slice(k_range, (key_chunk_idx,), slice_sizes=(k_chunk_sizes,))
+        k_range_chunk = lax.dynamic_slice(k_range, (0, key_chunk_idx), slice_sizes=(1, k_chunk_sizes))
 
         causal_mask = q_range_chunk < k_range_chunk
 
@@ -73,8 +73,8 @@ def _query_chunk_flash_attention(q_range_chunk, k_range, q, k, v):
 def causal_flash_attention(q, k, v):
     q_len, dim, k_len, v_dim = *q.shape, *v.shape
 
-    q_range = jnp.arange(q_len).reshape(q_len, 1)
-    k_range = jnp.arange(k_len) + max(k_len - q_len, 0.)
+    q_range = jnp.arange(q_len).reshape(q_len, 1) + (k_len - q_len)
+    k_range = jnp.arange(k_len).reshape(1, k_len)
 
     def chunk_scanner(chunk_idx, _):
         chunk_sizes = min(Q_CHUNK_SIZE, q_len)
@@ -110,7 +110,7 @@ def _query_chunk_flash_attention_backward(query_range_chunk, key_range, q, k, v,
         k_chunk = lax.dynamic_slice(k, (key_chunk_idx, 0), slice_sizes=(k_chunk_sizes, dim))
         v_chunk = lax.dynamic_slice(v, (key_chunk_idx, 0), slice_sizes=(k_chunk_sizes, v_dim))
 
-        key_range_chunk = lax.dynamic_slice(key_range, (key_chunk_idx,), slice_sizes=(k_chunk_sizes,))
+        key_range_chunk = lax.dynamic_slice(key_range, (0, key_chunk_idx), slice_sizes=(1, k_chunk_sizes))
 
         causal_mask = query_range_chunk < key_range_chunk
 
@@ -157,8 +157,8 @@ def flash_attention_backward(res, do):
     m = m.reshape(q_len, 1)
     l = l.reshape(q_len, 1)
 
-    q_range = jnp.arange(q_len).reshape(q_len, 1)
-    k_range = jnp.arange(k_len) + max(k_len - q_len, 0.)
+    q_range = jnp.arange(q_len).reshape(q_len, 1) + (k_len - q_len)
+    k_range = jnp.arange(k_len).reshape(1, k_len)
 
     def chunk_scanner(carries, _):
         chunk_idx, dk, dv = carries

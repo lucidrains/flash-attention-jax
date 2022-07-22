@@ -24,7 +24,7 @@ def value_and_grad_difference(
     fn2,
     seed = 42,
     q_seq_len = 4096,
-    k_seq_len = 4096,
+    k_seq_len = 8192,
     add_key_mask = True,
     dim = 512
 ):

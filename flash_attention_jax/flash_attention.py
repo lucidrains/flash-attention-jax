@@ -5,16 +5,51 @@ from jax import nn
 from jax import custom_vjp
 from jax import numpy as jnp, lax, jit, grad
 
+# constants
+
 Q_CHUNK_SIZE = 1024
+K_CHUNK_SIZE = 2048
+HIGHEST_PRECISION = jax.lax.Precision.HIGHEST
+
+einsum = partial(jnp.einsum, precision = HIGHEST_PRECISION)
+
+# flash attention
 
 def _query_chunk_flash_attention(q, k, v):
     q_len, k_len, dim, v_dim = q.shape[-2], *k.shape, v.shape[-1]
+    scale = 1 / jnp.sqrt(dim)
 
-    sim = q @ k.transpose()
-    sim = sim / jnp.sqrt(dim)
-    attn = nn.softmax(sim, axis = -1)
-    out = attn @ v
-    return out
+    def chunk_scanner(carries, _):
+        chunk_idx, out, row_sum, row_max = carries
+        k_chunk = lax.dynamic_slice(k, (chunk_idx, 0), slice_sizes=(K_CHUNK_SIZE, dim))
+        v_chunk = lax.dynamic_slice(v, (chunk_idx, 0), slice_sizes=(K_CHUNK_SIZE, v_dim))
+
+        attn_weights = einsum('qd, kd -> qk', q, k) * scale
+
+        block_row_max = jnp.max(attn_weights, axis = -1, keepdims = True)
+        exp_weights = jnp.exp(attn_weights - block_row_max)
+        block_row_sum = jnp.sum(exp_weights, axis = -1, keepdims = True)
+
+        exp_values = einsum('vf, qv -> qf', v, exp_weights)
+
+        new_row_max = jnp.maximum(block_row_max, row_max)
+
+        exp_row_max_diff = jnp.exp(row_max - new_row_max)
+        exp_block_row_max_diff = jnp.exp(block_row_max - new_row_max)
+
+        new_row_sum = exp_row_max_diff * row_sum + exp_block_row_max_diff * block_row_sum
+
+        out = (row_sum / new_row_sum) * exp_row_max_diff * out + \
+              (exp_block_row_max_diff / new_row_sum) * exp_values
+
+        return (chunk_idx + K_CHUNK_SIZE, out, new_row_sum, new_row_max), None
+
+    out = jnp.zeros((q_len, dim))
+    row_sum = jnp.zeros((q_len, 1))
+    row_max = jnp.ones((q_len, 1)) * -1e6
+
+    (_, out, _, _), _ = lax.scan(chunk_scanner, init = (0, out, row_sum, row_max), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
+    return out.reshape(q_len, v_dim)
 
 @custom_vjp
 def flash_attention(q, k, v):
@@ -70,11 +105,28 @@ def l2norm(t, eps = 1e-6):
 def _query_chunk_flash_cosine_sim_attention(q, k, v):
     q_len, k_len, dim, v_dim = q.shape[-2], *k.shape, v.shape[-1]
 
-    sim = q @ k.transpose()
-    sim = sim * COSINE_SIM_SCALE
-    attn = nn.softmax(sim, axis = -1)
-    out = attn @ v
-    return out
+    def chunk_scanner(carries, _):
+        chunk_idx, out, row_sum = carries
+        k_chunk = lax.dynamic_slice(k, (chunk_idx, 0), slice_sizes=(K_CHUNK_SIZE, dim))
+        v_chunk = lax.dynamic_slice(v, (chunk_idx, 0), slice_sizes=(K_CHUNK_SIZE, v_dim))
+
+        attn_weights = einsum('qd, kd -> qk', q, k) * COSINE_SIM_SCALE
+        exp_weights = jnp.exp(attn_weights - COSINE_SIM_SCALE)
+        block_row_sum = jnp.sum(exp_weights, axis = -1, keepdims = True)
+
+        exp_values = einsum('vf, qv -> qf', v, exp_weights)
+
+        new_row_sum = row_sum + block_row_sum
+
+        out = (row_sum / new_row_sum) * out + (exp_values / new_row_sum)
+
+        return (chunk_idx + K_CHUNK_SIZE, out, new_row_sum), None
+
+    out = jnp.zeros((q_len, dim))
+    row_sum = jnp.zeros((q_len, 1))
+
+    (_, out, _), _ = lax.scan(chunk_scanner, init = (0, out, row_sum), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
+    return out.reshape(q_len, v_dim)
 
 def flash_cosine_sim_attention(q, k, v):
     q, k = map(l2norm, (q, k))

@@ -125,14 +125,16 @@ def flash_attention_backward(res, do):
     def chunk_scanner(carries, _):
         chunk_idx, dk, dv = carries
 
-        q_chunk = lax.dynamic_slice(q, (chunk_idx, 0), slice_sizes = (min(Q_CHUNK_SIZE, q_len), q.shape[-1]))
-        m_chunk = lax.dynamic_slice(m, (chunk_idx, 0), slice_sizes = (min(Q_CHUNK_SIZE, q_len), 1))
-        l_chunk = lax.dynamic_slice(l, (chunk_idx, 0), slice_sizes = (min(Q_CHUNK_SIZE, q_len), 1))
-        o_chunk = lax.dynamic_slice(o, (chunk_idx, 0), slice_sizes = (min(Q_CHUNK_SIZE, q_len), o.shape[-1]))
-        do_chunk = lax.dynamic_slice(do, (chunk_idx, 0), slice_sizes = (min(Q_CHUNK_SIZE, q_len), do.shape[-1]))
+        chunk_sizes = min(Q_CHUNK_SIZE, q_len)
+
+        q_chunk = lax.dynamic_slice(q, (chunk_idx, 0), slice_sizes = (chunk_sizes, q.shape[-1]))
+        m_chunk = lax.dynamic_slice(m, (chunk_idx, 0), slice_sizes = (chunk_sizes, 1))
+        l_chunk = lax.dynamic_slice(l, (chunk_idx, 0), slice_sizes = (chunk_sizes, 1))
+        o_chunk = lax.dynamic_slice(o, (chunk_idx, 0), slice_sizes = (chunk_sizes, o.shape[-1]))
+        do_chunk = lax.dynamic_slice(do, (chunk_idx, 0), slice_sizes = (chunk_sizes, do.shape[-1]))
 
         dq_chunk, dk_chunk, dv_chunk = _query_chunk_flash_attention_backward(q_chunk, k, v, o_chunk, do_chunk, l_chunk, m_chunk)
-        return (chunk_idx + Q_CHUNK_SIZE, dk + dk_chunk, dv + dv_chunk), dq_chunk
+        return (chunk_idx + chunk_sizes, dk + dk_chunk, dv + dv_chunk), dq_chunk
 
     (_, dk, dv), dq = lax.scan(chunk_scanner, init = (0, dk, dv), xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
 

@@ -115,14 +115,16 @@ def _query_chunk_flash_cosine_sim_attention(q, k, v):
 
         new_row_sum = row_sum + block_row_sum
 
-        out = (row_sum / new_row_sum) * out + (exp_values / new_row_sum)
+        out = out + (exp_values / k_len)
 
         return (chunk_idx + K_CHUNK_SIZE, out, new_row_sum), None
 
     out = jnp.zeros((q_len, dim))
     row_sum = jnp.zeros((q_len, 1))
 
-    (_, out, _), _ = lax.scan(chunk_scanner, init = (0, out, row_sum), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
+    (_, out, row_sum), _ = lax.scan(chunk_scanner, init = (0, out, row_sum), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
+
+    out = out * (k_len / row_sum)
     return out.reshape(q_len, v_dim)
 
 def flash_cosine_sim_attention(q, k, v):

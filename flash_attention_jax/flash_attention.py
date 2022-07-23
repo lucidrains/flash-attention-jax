@@ -65,6 +65,7 @@ def _query_chunk_flash_attention(chunk_idx, q, k, v, key_mask):
     return out, row_sum, row_max
 
 @custom_vjp
+@jit
 def flash_attention(q, k, v, key_mask):
     q_len, dim, v_dim = *q.shape, v.shape[-1]
 

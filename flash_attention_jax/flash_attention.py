@@ -104,7 +104,7 @@ def _query_chunk_flash_attention_backward(q, k, v, key_mask,o, do, l, m):
         key_mask_chunk = lax.dynamic_slice(key_mask, (chunk_idx,), slice_sizes=(k_chunk_sizes,))
 
         attn_weights = q_scaled @ k_chunk.transpose()
-        attn_weights = attn_weights
+
         exp_attn_weights = jnp.exp(attn_weights - m)
 
         exp_attn_weights = jnp.where(key_mask_chunk, exp_attn_weights, 0.)

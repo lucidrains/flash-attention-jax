@@ -12,7 +12,7 @@ MASK_VALUE = -1e10
 
 Q_CHUNK_SIZE = 1024
 K_CHUNK_SIZE = 1024
-COSINE_SIM_SCALE = 16
+COSINE_SIM_SCALE = 16 # this may need to be a function of log(sequence length), but 16 was sufficient for 2048 and 4096 in my tests
 
 # flash attention
 

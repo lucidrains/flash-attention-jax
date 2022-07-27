@@ -1,7 +1,8 @@
 from flash_attention_jax.flash_attention import flash_attention
+from flash_attention_jax.cosine_sim_flash_attention import cosine_sim_flash_attention
 from flash_attention_jax.causal_flash_attention import causal_flash_attention
 from flash_attention_jax.rabe_attention import rabe_attention
-from flash_attention_jax.attention import attention, causal_attention
+from flash_attention_jax.attention import attention, causal_attention, cosine_sim_attention
 
 from flash_attention_jax.utils import value_and_grad_difference, PRNGKeyGenerator
 

@@ -2,7 +2,9 @@ import jax
 from jax import nn
 from jax import jit, numpy as jnp
 
+EPSILON = 1e-10
 MASK_VALUE = -1e10
+COSINE_SIM_SCALE = 16
 
 @jit
 def attention(q, k, v, key_mask):
@@ -30,3 +32,21 @@ def causal_attention(q, k, v):
 
     attn = nn.softmax(sim, axis = -1)
     return attn @ v
+
+# cosine sim attention
+
+@jit
+def l2norm(t):
+    return t / (jnp.linalg.norm(t) + EPSILON)
+
+@jit
+def cosine_sim_attention(q, k, v, key_mask):
+    dim, k_len = q.shape[-1], k.shape[-2]
+    q, k = map(l2norm, (q, k))
+
+    sim = q @ k.transpose() * COSINE_SIM_SCALE
+
+    sim = jnp.where(key_mask, sim, MASK_VALUE)
+
+    attn = nn.softmax(sim, axis = -1)
+    return attn @ v    

@@ -12,7 +12,7 @@ MASK_VALUE = -1e10
 
 Q_CHUNK_SIZE = 1024
 K_CHUNK_SIZE = 1024
-COSINE_SIM_SCALE = 16 # this may need to be a function of log(sequence length), but 16 was sufficient for 2048 and 4096 in my tests
+COSINE_SIM_SCALE = 10 # this may need to be a function of log(sequence length), but 16 was sufficient for 2048 and 4096 in my tests
 
 # flash attention
 
@@ -47,7 +47,7 @@ def _query_chunk_flash_attention(chunk_idx, q, k, v, key_mask):
 
     (_, out, row_sum), _ = lax.scan(chunk_scanner, init = (0, out, row_sum), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
 
-    out = out * (k_len /  (row_sum + EPSILON)) # renormalize after acquiring all the correct row sums
+    out = out * (k_len / (row_sum + EPSILON)) # renormalize after acquiring all the correct row sums
 
     out = out.reshape(q_len, v_dim)
     row_sum = row_sum.reshape(q_len)
@@ -103,7 +103,7 @@ def _query_chunk_flash_attention_backward(q, k, v, key_mask,o, do, l):
 
         exp_attn_weights = jnp.where(key_mask_chunk, exp_attn_weights, 0.)
 
-        p = exp_attn_weights / l
+        p = exp_attn_weights / (l + EPSILON)
 
         dv_chunk = p.transpose() @ do
         dp = do @ v_chunk.transpose()

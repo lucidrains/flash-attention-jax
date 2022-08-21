@@ -4,7 +4,7 @@ from jax import jit, numpy as jnp
 
 EPSILON = 1e-10
 MASK_VALUE = -1e10
-COSINE_SIM_SCALE = 16
+COSINE_SIM_SCALE = 10
 
 @jit
 def attention(q, k, v, key_mask):

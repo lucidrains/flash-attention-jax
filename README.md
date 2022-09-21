@@ -18,10 +18,10 @@ from flash_attention_jax import flash_attention
 
 rng_key = random.PRNGKey(42)
 
-q = random.normal(rng_key, (131072, 512))
-k = random.normal(rng_key, (131072, 512))
-v = random.normal(rng_key, (131072, 512))
-mask = random.randint(rng_key, (131072,), 0, 2)
+q = random.normal(rng_key, (1, 2, 131072, 512))  # (batch, heads, seq, dim)
+k = random.normal(rng_key, (1, 2, 131072, 512))
+v = random.normal(rng_key, (1, 2, 131072, 512))
+mask = random.randint(rng_key, (1, 131072,), 0, 2) # (batch, seq)
 
 out, _ = flash_attention(q, k, v, mask)
 
@@ -98,6 +98,7 @@ out.shape # (131072, 512)
 - [ ] figure out issue with jit and static argnums
 - [ ] comment with references to paper algorithms and explanations
 - [ ] make sure it can work one-headed key / values, as in PaLM
+- [ ] leading dimensions for causal flash attention variant
 
 ## Citations
 

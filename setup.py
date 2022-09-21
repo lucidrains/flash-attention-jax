@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'flash-attention-jax',
   packages = find_packages(exclude=[]),
-  version = '0.0.9',
+  version = '0.0.10',
   license='MIT',
   description = 'Flash Attention - in Jax',
   author = 'Phil Wang',
@@ -18,6 +18,7 @@ setup(
     'jax'
   ],
   install_requires=[
+    'einops',
     'jax>=0.2.20'
   ],
   classifiers=[

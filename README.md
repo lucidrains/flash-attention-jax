@@ -25,7 +25,7 @@ mask = random.randint(rng_key, (1, 131072,), 0, 2) # (batch, seq)
 
 out, _ = flash_attention(q, k, v, mask)
 
-out.shape  # (131072, 512)
+out.shape  # (1, 2, 131072, 512) - (batch, heads, seq, dim)
 ```
 
 Quick sanity check
@@ -62,35 +62,6 @@ v = random.normal(rng_key, (131072, 512))
 out, _ = causal_flash_attention(q, k, v)
 
 out.shape  # (131072, 512)
-```
-
-## Using in Pytorch
-
-You'll have to have both Jax and Pytorch installed
-
-First install `jax2torch`
-
-```bash
-$ pip install jax2torch
-```
-
-Then
-
-```python
-import torch
-from jax2torch import jax2torch
-from flash_attention_jax import flash_attention
-
-q = torch.randn(131072, 512).cuda()
-k = torch.randn(131072, 512).cuda()
-v = torch.randn(131072, 512).cuda()
-mask = torch.ones((131072,)).cuda()  # dlpack does not support boolean types, use 1s and 0s
-
-torch_flash_attention = jax2torch(flash_attention)
-
-out = torch_flash_attention(q, k, v, mask)
-
-out.shape # (131072, 512)
 ```
 
 ## Todo

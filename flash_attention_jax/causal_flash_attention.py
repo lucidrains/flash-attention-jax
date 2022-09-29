@@ -69,8 +69,7 @@ def _query_chunk_flash_attention(q_range_chunk, k_range, q, k, v):
 
     return out, row_sum, row_max
 
-@custom_vjp
-def causal_flash_attention(q, k, v):
+def _causal_flash_attention(q, k, v):
     q_len, dim, k_len, v_dim = *q.shape, *v.shape
 
     q_range = jnp.arange(q_len).reshape(q_len, 1) + (k_len - q_len)
@@ -92,9 +91,14 @@ def causal_flash_attention(q, k, v):
 
     return out, (row_sum, row_max)
 
+@custom_vjp
+def causal_flash_attention(q, k, v):
+  out, _ = _causal_flash_attention(q, k, v)
+  return out
+
 @jit
 def flash_attention_forward(q, k, v):
-    out, (row_sum, row_max) = causal_flash_attention(q, k, v)
+    out, (row_sum, row_max) = _causal_flash_attention(q, k, v)
     return out, (q, k, v, out, row_sum, row_max)
 
 def _query_chunk_flash_attention_backward(query_range_chunk, key_range, q, k, v, o, do, l, m):

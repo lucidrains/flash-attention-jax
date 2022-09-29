@@ -68,9 +68,7 @@ def _query_chunk_flash_attention(chunk_idx, q, k, v, key_mask):
 
     return out, row_sum, row_max
 
-@custom_vjp
-@jit
-def flash_attention(q, k, v, key_mask):
+def _flash_attention(q, k, v, key_mask):
     batch, heads, q_len, dim, v_dim = *q.shape, v.shape[-1]
 
     def chunk_scanner(chunk_idx, _):
@@ -91,12 +89,18 @@ def flash_attention(q, k, v, key_mask):
 
     return out, (row_sum, row_max)
 
+@custom_vjp
+@jit
+def flash_attention(q, k, v, key_mask):
+  out, _ = _flash_attention(q, k, v, key_mask)
+  return out
+
 @jit
 def flash_attention_forward(q, k, v, key_mask):
-    out, (row_sum, row_max) = flash_attention(q, k, v, key_mask)
+    out, (row_sum, row_max) = _flash_attention(q, k, v, key_mask)
     return out, (q, k, v, key_mask, out, row_sum, row_max)
 
-def _query_chunk_flash_attention_backward(q, k, v, key_mask,o, do, l, m):
+def _query_chunk_flash_attention_backward(q, k, v, key_mask, o, do, l, m):
     q_len, batch, heads, dim, k_len, v_dim = *q.shape, v.shape[0], v.shape[-1]
 
     scale = 1 / jnp.sqrt(dim)

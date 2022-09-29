@@ -63,8 +63,7 @@ def cosine_sim_flash_attention(q, k, v, key_mask):
     q, k = map(l2norm, (q, k))
     return cosine_sim_flash_attention_after_l2norm(q, k, v, key_mask)
 
-@custom_vjp
-def cosine_sim_flash_attention_after_l2norm(q, k, v, key_mask):
+def _cosine_sim_flash_attention_after_l2norm(q, k, v, key_mask):
     q_len, dim, v_dim = *q.shape, v.shape[-1]
 
     def chunk_scanner(chunk_idx, _):
@@ -81,9 +80,14 @@ def cosine_sim_flash_attention_after_l2norm(q, k, v, key_mask):
 
     return out, (row_sum,)
 
+@custom_vjp
+def cosine_sim_flash_attention_after_l2norm(q, k, v, key_mask):
+  out, _ = _cosine_sim_flash_attention_after_l2norm(q, k, v, key_mask)
+  return out
+
 @jit
 def flash_attention_forward(q, k, v, key_mask):
-    out, (row_sum,) = cosine_sim_flash_attention_after_l2norm(q, k, v, key_mask)
+    out, (row_sum,) = _cosine_sim_flash_attention_after_l2norm(q, k, v, key_mask)
     return out, (q, k, v, key_mask, out, row_sum)
 
 def _query_chunk_flash_attention_backward(q, k, v, key_mask,o, do, l):

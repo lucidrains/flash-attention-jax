@@ -66,7 +66,9 @@ def _query_chunk_flash_attention(chunk_idx, q, k, v, key_mask):
     row_sum = rearrange(row_sum, 'n ... 1 -> n ...')
     row_max = rearrange(row_max, 'n ... 1 -> n ...')
 
-    return out, row_sum, row_max
+    lse = jnp.log(row_sum) + row_max
+
+    return out, lse
 
 def _flash_attention(q, k, v, key_mask):
     batch, heads, q_len, dim, v_dim = *q.shape, v.shape[-1]
@@ -81,13 +83,12 @@ def _flash_attention(q, k, v, key_mask):
     q, k, v = map(lambda t: rearrange(t, 'b h n d -> n b h d'), (q, k, v))
     key_mask = rearrange(key_mask, 'b j -> j b')
 
-    _, (out, row_sum, row_max) = lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
+    _, (out, lse) = lax.scan(chunk_scanner, init = 0, xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))
 
     out = rearrange(out, 'c n b h d -> b h (c n) d')
-    row_sum = rearrange(row_sum, 'c n b h -> b h (c n)')
-    row_max = rearrange(row_max, 'c n b h -> b h (c n)')
+    lse = rearrange(lse, 'c n b h -> b h (c n)')
 
-    return out, (row_sum, row_max)
+    return out, lse
 
 @custom_vjp
 @jit
@@ -97,10 +98,10 @@ def flash_attention(q, k, v, key_mask):
 
 @jit
 def flash_attention_forward(q, k, v, key_mask):
-    out, (row_sum, row_max) = _flash_attention(q, k, v, key_mask)
-    return out, (q, k, v, key_mask, out, row_sum, row_max)
+    out, lse = _flash_attention(q, k, v, key_mask)
+    return out, (q, k, v, key_mask, out, lse)
 
-def _query_chunk_flash_attention_backward(q, k, v, key_mask, o, do, l, m):
+def _query_chunk_flash_attention_backward(q, k, v, key_mask, o, do, lse):
     q_len, batch, heads, dim, k_len, v_dim = *q.shape, v.shape[0], v.shape[-1]
 
     scale = 1 / jnp.sqrt(dim)
@@ -116,12 +117,10 @@ def _query_chunk_flash_attention_backward(q, k, v, key_mask, o, do, l, m):
 
         attn_weights = einsum('i ... d, j ... d -> i ... j', q_scaled, k_chunk)
 
-        exp_attn_weights = jnp.exp(attn_weights - m)
+        p = jnp.exp(attn_weights - lse)
 
         key_mask_chunk = rearrange(key_mask_chunk, 'j b -> 1 b 1 j')
-        exp_attn_weights = jnp.where(key_mask_chunk, exp_attn_weights, 0.)
-
-        p = exp_attn_weights / l
+        p = jnp.where(key_mask_chunk, p, 0.)        
 
         dv_chunk = einsum('i ... j, i ... d -> j ... d', p, do)
         dp = einsum('i ... d, j ... d -> i ... j', do, v_chunk)
@@ -144,11 +143,11 @@ def _query_chunk_flash_attention_backward(q, k, v, key_mask, o, do, l, m):
 
 @jit
 def flash_attention_backward(res, do):
-    q, k, v, key_mask, o, l, m = res
+    q, k, v, key_mask, o, lse = res
 
     batch, heads, q_len, dim = q.shape
 
-    m, l = map(lambda t: rearrange(t, 'b h n -> n b h 1'), (m, l))
+    lse = rearrange(lse, 'b h n -> n b h 1')
 
     q, k, v, o, do = map(lambda t: rearrange(t, 'b h n d -> n b h d'), (q, k, v, o, do))
     key_mask = rearrange(key_mask, 'b j -> j b')
@@ -162,12 +161,11 @@ def flash_attention_backward(res, do):
         chunk_sizes = min(Q_CHUNK_SIZE, q_len)
 
         q_chunk = lax.dynamic_slice(q, (chunk_idx, batch, heads, 0), slice_sizes = (chunk_sizes, batch, heads, q.shape[-1]))
-        m_chunk = lax.dynamic_slice(m, (chunk_idx, batch, heads, 0), slice_sizes = (chunk_sizes, batch, heads, 1))
-        l_chunk = lax.dynamic_slice(l, (chunk_idx, batch, heads, 0), slice_sizes = (chunk_sizes, batch, heads, 1))
+        lse_chunk = lax.dynamic_slice(lse, (chunk_idx, batch, heads, 0), slice_sizes = (chunk_sizes, batch, heads, 1))
         o_chunk = lax.dynamic_slice(o, (chunk_idx, batch, heads, 0), slice_sizes = (chunk_sizes, batch, heads, o.shape[-1]))
         do_chunk = lax.dynamic_slice(do, (chunk_idx, batch, heads, 0), slice_sizes = (chunk_sizes, batch, heads, do.shape[-1]))
 
-        dq_chunk, dk_chunk, dv_chunk = _query_chunk_flash_attention_backward(q_chunk, k, v, key_mask, o_chunk, do_chunk, l_chunk, m_chunk)
+        dq_chunk, dk_chunk, dv_chunk = _query_chunk_flash_attention_backward(q_chunk, k, v, key_mask, o_chunk, do_chunk, lse_chunk)
         return (chunk_idx + chunk_sizes, dk + dk_chunk, dv + dv_chunk), dq_chunk
 
     (_, dk, dv), dq = lax.scan(chunk_scanner, init = (0, dk, dv), xs = None, length = math.ceil(q_len / Q_CHUNK_SIZE))

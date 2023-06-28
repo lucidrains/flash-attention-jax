@@ -18,6 +18,7 @@ COSINE_SIM_SCALE = 10 # this may need to be a function of log(sequence length), 
 
 def _query_chunk_flash_attention(chunk_idx, q, k, v, key_mask):
     q_len, k_len, dim, v_dim = q.shape[-2], *k.shape, v.shape[-1]
+    calculation_dtype = q.dtype
 
     def chunk_scanner(carries, _):
         chunk_idx, out, row_sum = carries
@@ -42,8 +43,8 @@ def _query_chunk_flash_attention(chunk_idx, q, k, v, key_mask):
 
         return (chunk_idx + k_chunk_sizes, out + chunk_out, row_sum + block_row_sum), None
 
-    out = jnp.zeros((q_len, dim))
-    row_sum = jnp.zeros((q_len, 1))
+    out = jnp.zeros((q_len, dim), dtype = calculation_dtype)
+    row_sum = jnp.zeros((q_len, 1), dtype = calculation_dtype)
 
     (_, out, row_sum), _ = lax.scan(chunk_scanner, init = (0, out, row_sum), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
 

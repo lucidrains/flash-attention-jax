@@ -38,22 +38,20 @@ def _query_chunk_flash_attention(chunk_idx, q, k, v, key_mask):
 
         block_row_max = jnp.max(attn_weights, axis = -1, keepdims = True)
 
-        exp_weights = jnp.exp(attn_weights - block_row_max)
+        new_row_max = jnp.maximum(block_row_max, row_max)
+        exp_weights = jnp.exp(attn_weights - new_row_max)
 
         exp_weights = jnp.where(key_mask_chunk, exp_weights, 0.)
         block_row_sum = jnp.sum(exp_weights, axis = -1, keepdims = True) + EPSILON
 
         exp_values = einsum('i ... j, j ... d -> i ... d', exp_weights, v_chunk)
 
-        new_row_max = jnp.maximum(block_row_max, row_max)
-
         exp_row_max_diff = jnp.exp(row_max - new_row_max)
-        exp_block_row_max_diff = jnp.exp(block_row_max - new_row_max)
 
-        new_row_sum = exp_row_max_diff * row_sum + exp_block_row_max_diff * block_row_sum
+        new_row_sum = exp_row_max_diff * row_sum + block_row_sum
 
         out = (row_sum / new_row_sum) * exp_row_max_diff * out + \
-              (exp_block_row_max_diff / new_row_sum) * exp_values
+              (1. / new_row_sum) * exp_values
 
         return (chunk_idx + k_chunk_sizes, out, new_row_sum, new_row_max), None
 

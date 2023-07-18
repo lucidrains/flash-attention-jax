@@ -20,6 +20,7 @@ K_CHUNK_SIZE = 1024
 
 def _query_chunk_flash_attention(q_range_chunk, k_range, q, k, v):
     q_len, k_len, bh, dim, v_dim = q.shape[0], *k.shape, v.shape[-1]
+    calculation_dtype = q.dtype
     scale = 1 / jnp.sqrt(dim)
     q_scaled  = q * scale
 
@@ -61,9 +62,9 @@ def _query_chunk_flash_attention(q_range_chunk, k_range, q, k, v):
 
         return (key_chunk_idx + k_chunk_sizes, out, new_row_sum, new_row_max), None
 
-    out = jnp.zeros((q_len, bh, dim))
-    row_sum = jnp.zeros((q_len, bh, 1))
-    row_max = jnp.ones((q_len, bh, 1)) * -1e6
+    out = jnp.zeros((q_len, bh, dim), dtype=calculation_dtype)
+    row_sum = jnp.zeros((q_len, bh, 1), dtype=calculation_dtype)
+    row_max = jnp.ones((q_len, bh, 1), dtype=calculation_dtype) * -1e6
 
     (_, out, row_sum, row_max), _ = lax.scan(chunk_scanner, init = (0, out, row_sum, row_max), xs = None, length = math.ceil(k_len / K_CHUNK_SIZE))
 

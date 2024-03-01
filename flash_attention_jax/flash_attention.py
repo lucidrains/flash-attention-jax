@@ -55,7 +55,7 @@ def _query_chunk_flash_attention(chunk_idx, q, k, v, key_mask):
 
         return (chunk_idx + k_chunk_sizes, out, new_row_sum, new_row_max), None
 
-    out = jnp.zeros((q_len, batch, heads, dim))
+    out = jnp.zeros((q_len, batch, heads, v_dim))
     row_sum = jnp.zeros((q_len, batch, heads, 1))
     row_max = jnp.ones((q_len, batch, heads, 1)) * -1e6
 
